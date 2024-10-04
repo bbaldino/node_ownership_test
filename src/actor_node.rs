@@ -1,8 +1,11 @@
-use crate::{Node, PacketInfo};
+use async_trait::async_trait;
 
+use crate::{Node, PacketInfo, StatTrackerNode};
+
+#[async_trait]
 impl Node for tokio::sync::mpsc::Sender<PacketInfo> {
-    fn process_packet(&mut self, packet_info: PacketInfo) {
-        self.try_send(packet_info).unwrap();
+    async fn process_packet(&mut self, packet_info: PacketInfo) {
+        let _ = self.send(packet_info).await;
     }
 }
 
@@ -13,12 +16,12 @@ pub(crate) struct ActorNode {
     // down correctly
     incoming_tx: Option<tokio::sync::mpsc::Sender<PacketInfo>>,
     incoming_rx: tokio::sync::mpsc::Receiver<PacketInfo>,
-    next: Option<tokio::sync::mpsc::Sender<PacketInfo>>,
+    next: Option<Box<dyn Node>>,
 }
 
 impl ActorNode {
     pub(crate) fn new(name: &str) -> Self {
-        let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(100);
+        let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1000);
         Self {
             name: name.to_owned(),
             incoming_tx: Some(incoming_tx),
@@ -35,9 +38,9 @@ impl ActorNode {
         self.incoming_tx.take();
         while let Some(mut packet) = self.incoming_rx.recv().await {
             packet.add_event(&format!("received by {}", self.name));
-            if let Some(ref next) = self.next {
+            if let Some(ref mut next) = self.next {
                 packet.add_event(&format!("sent by {}", self.name));
-                let _ = next.send(packet).await;
+                next.process_packet(packet).await;
             }
         }
     }
@@ -49,8 +52,9 @@ pub(crate) fn create_actor_node_pipeline(pipeline_id: u32, num_nodes: usize) -> 
     nodes.push(first_node);
     for i in 1..num_nodes {
         let node = ActorNode::new(&format!("pipeline_{pipeline_id}_node_{i}"));
-        nodes[i - 1].next = Some(node.get_sender());
+        nodes[i - 1].next = Some(Box::new(node.get_sender()));
         nodes.push(node);
     }
+    nodes[num_nodes - 1].next = Some(Box::new(StatTrackerNode::default()));
     nodes
 }

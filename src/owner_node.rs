@@ -1,4 +1,6 @@
-use crate::{Node, PacketInfo};
+use async_trait::async_trait;
+
+use crate::{Node, PacketInfo, StatTrackerNode, TIMELINE_PRINT_INTERVAL};
 
 pub(crate) struct OwnerNode {
     name: String,
@@ -14,18 +16,19 @@ impl OwnerNode {
     }
 }
 
+#[async_trait]
 impl Node for OwnerNode {
-    fn process_packet(&mut self, mut packet_info: PacketInfo) {
+    async fn process_packet(&mut self, mut packet_info: PacketInfo) {
         packet_info.add_event(&format!("received by {}", self.name));
         if let Some(ref mut next) = self.next {
             packet_info.add_event(&format!("sent by {}", self.name));
-            next.process_packet(packet_info);
+            next.process_packet(packet_info).await;
         }
     }
 }
 
 pub(crate) fn create_owner_node_pipeline(pipeline_id: u32, num_nodes: usize) -> Box<dyn Node> {
-    let mut prev_node: Option<Box<dyn Node>> = None;
+    let mut prev_node: Option<Box<dyn Node>> = Some(Box::new(StatTrackerNode::default()));
     for i in (0..num_nodes).rev() {
         let node = Box::new(OwnerNode::new(
             &format!("pipeline_{pipeline_id}_node_{i}"),

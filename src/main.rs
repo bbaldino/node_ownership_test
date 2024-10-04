@@ -1,9 +1,11 @@
 pub mod actor_node;
 pub mod owner_node;
 
-use std::{fmt::Display, time::Instant};
+use std::time::{Duration, Instant};
 
 use actor_node::{create_actor_node_pipeline, ActorNode};
+use async_trait::async_trait;
+use meansd::MeanSD;
 use owner_node::create_owner_node_pipeline;
 use tokio::task::JoinSet;
 
@@ -25,25 +27,18 @@ impl TimelineEvent {
 
 pub(crate) struct PacketInfo {
     index: u32,
-    initial_time: Instant,
     timeline: Vec<TimelineEvent>,
 }
 
 impl PacketInfo {
     fn new(index: u32, initial_event: &str) -> Self {
-        let initial_time = Instant::now();
-        let timeline = vec![TimelineEvent::new(initial_time, initial_event)];
-        Self {
-            index,
-            initial_time,
-            timeline,
-        }
+        let timeline = vec![TimelineEvent::new(Instant::now(), initial_event)];
+        Self { index, timeline }
     }
 
     fn add_event(&mut self, event: &str) {
         let time = Instant::now();
-        self.timeline
-            .push(TimelineEvent::new(time, format!("[{:?}]: {event}", time)));
+        self.timeline.push(TimelineEvent::new(time, event));
     }
 
     fn dump_timeline(&self) {
@@ -55,10 +50,64 @@ impl PacketInfo {
             println!("[{:?}]: {}", (event.timestamp - base_time), event.event);
         }
     }
+
+    fn transit_time(&self) -> Duration {
+        self.timeline.last().unwrap().timestamp - self.timeline.first().unwrap().timestamp
+    }
 }
 
+#[async_trait]
 trait Node: Send {
-    fn process_packet(&mut self, packet_info: PacketInfo);
+    async fn process_packet(&mut self, packet_info: PacketInfo);
+}
+
+#[derive(Default)]
+struct JitterCalculator {
+    prev_transit_time: Duration,
+    current_jitter: f32,
+}
+
+impl JitterCalculator {
+    fn add_value(&mut self, current_transit_time: Duration) {
+        let d = current_transit_time.abs_diff(self.prev_transit_time);
+        self.prev_transit_time = current_transit_time;
+        self.current_jitter += (1f32 / 16f32) * (d.as_millis() as f32 - self.current_jitter);
+    }
+
+    fn current_jitter(&self) -> f32 {
+        self.current_jitter
+    }
+}
+
+#[derive(Default)]
+struct StatTrackerNode {
+    jitter_calculator: JitterCalculator,
+    latency: MeanSD,
+}
+
+impl StatTrackerNode {
+    fn dump_stats(&self) {
+        println!("jitter: {}", self.jitter_calculator.current_jitter());
+        println!(
+            "latency: mean {}, stddev {}",
+            self.latency.mean(),
+            self.latency.sstdev()
+        );
+    }
+}
+
+#[async_trait]
+impl Node for StatTrackerNode {
+    async fn process_packet(&mut self, packet_info: PacketInfo) {
+        let transmit_time = packet_info.transit_time();
+        self.jitter_calculator.add_value(transmit_time);
+        self.latency.update(transmit_time.as_millis() as f64);
+
+        if packet_info.index == TIMELINE_PRINT_INTERVAL {
+            self.dump_stats();
+            // packet_info.dump_timeline();
+        }
+    }
 }
 
 async fn owner_node_test(num_pipelines: usize, num_nodes_per_pipeline: usize, num_packets: u32) {
@@ -75,7 +124,7 @@ async fn owner_node_test(num_pipelines: usize, num_nodes_per_pipeline: usize, nu
         join_set.spawn(async move {
             while let Some(mut packet) = rx.recv().await {
                 packet.add_event("enters pipeline");
-                pipeline.process_packet(packet);
+                pipeline.process_packet(packet).await;
             }
         });
     }
