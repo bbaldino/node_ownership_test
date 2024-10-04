@@ -1,4 +1,5 @@
 pub mod actor_node;
+pub mod owner_arc_mutex_node;
 pub mod owner_node;
 
 use std::time::{Duration, Instant};
@@ -6,6 +7,7 @@ use std::time::{Duration, Instant};
 use actor_node::{create_actor_node_pipeline, ActorNode};
 use async_trait::async_trait;
 use meansd::MeanSD;
+use owner_arc_mutex_node::create_owner_arc_mutex_node_pipeline;
 use owner_node::create_owner_node_pipeline;
 use tokio::task::JoinSet;
 
@@ -87,9 +89,9 @@ struct StatTrackerNode {
 
 impl StatTrackerNode {
     fn dump_stats(&self) {
-        println!("jitter: {}", self.jitter_calculator.current_jitter());
         println!(
-            "latency: mean {}, stddev {}",
+            "jitter: {}, mean latency: {}ms, stddev latency: {}ms",
+            self.jitter_calculator.current_jitter(),
             self.latency.mean(),
             self.latency.sstdev()
         );
@@ -105,7 +107,7 @@ impl Node for StatTrackerNode {
 
         if packet_info.index == TIMELINE_PRINT_INTERVAL {
             self.dump_stats();
-            // packet_info.dump_timeline();
+            packet_info.dump_timeline();
         }
     }
 }
@@ -125,6 +127,38 @@ async fn owner_node_test(num_pipelines: usize, num_nodes_per_pipeline: usize, nu
             while let Some(mut packet) = rx.recv().await {
                 packet.add_event("enters pipeline");
                 pipeline.process_packet(packet).await;
+            }
+        });
+    }
+    join_set.spawn(async move {
+        for i in 1..=num_packets {
+            for sender in &mut senders {
+                let _ = sender.send(PacketInfo::new(i, "sent to pipeline")).await;
+            }
+        }
+    });
+    join_set.join_all().await;
+}
+
+async fn owner_arc_mutex_node_test(
+    num_pipelines: usize,
+    num_nodes_per_pipeline: usize,
+    num_packets: u32,
+) {
+    let mut pipelines = vec![];
+    for i in 0..num_pipelines {
+        let pipeline = create_owner_arc_mutex_node_pipeline(i as u32, num_nodes_per_pipeline);
+        pipelines.push(pipeline);
+    }
+    let mut join_set = JoinSet::new();
+    let mut senders = vec![];
+    for mut pipeline in pipelines {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<PacketInfo>(100);
+        senders.push(tx);
+        join_set.spawn(async move {
+            while let Some(mut packet) = rx.recv().await {
+                packet.add_event("enters pipeline");
+                pipeline.lock().await.process_packet(packet).await;
             }
         });
     }
@@ -175,11 +209,15 @@ async fn main() {
     let num_packets = TIMELINE_PRINT_INTERVAL;
     let num_nodes = 10;
     let num_pipelines = 10;
-    let start = Instant::now();
     println!("Running {num_pipelines} pipelines with {num_nodes} nodes per pipeline and processing {num_packets} packets");
+    let start = Instant::now();
     owner_node_test(num_pipelines, num_nodes, num_packets).await;
     let end = Instant::now();
     println!("Owner node took {}ms", (end - start).as_millis());
+    let start = Instant::now();
+    owner_arc_mutex_node_test(num_pipelines, num_nodes, num_packets).await;
+    let end = Instant::now();
+    println!("Owner arc mutex node took {}ms", (end - start).as_millis());
     let start = Instant::now();
     actor_node_test(num_pipelines, num_nodes, num_packets).await;
     let end = Instant::now();

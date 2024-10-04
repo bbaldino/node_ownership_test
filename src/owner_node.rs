@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::{Node, PacketInfo, StatTrackerNode, TIMELINE_PRINT_INTERVAL};
+use crate::{Node, PacketInfo, StatTrackerNode};
 
 pub(crate) struct OwnerNode {
     name: String,
