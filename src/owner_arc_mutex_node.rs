@@ -3,7 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::{Node, PacketInfo, StatTrackerNode};
+use crate::{PacketInfo, StatTrackerNode};
+
+trait Node {
+    fn process_packet(&mut self, packet_info: PacketInfo);
+}
 
 pub(crate) struct OwnerNodeArcMutex {
     name: String,
