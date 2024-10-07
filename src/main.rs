@@ -1,4 +1,5 @@
 pub mod actor_node;
+mod owner_arc_mutex_node;
 pub mod owner_node;
 
 use std::time::{Duration, Instant};
@@ -96,11 +97,20 @@ async fn main() {
     let num_packets = 1000000;
     let num_nodes = 10;
     let num_pipelines = 10;
+    console_subscriber::init();
     println!("Running {num_pipelines} pipelines with {num_nodes} nodes per pipeline and processing {num_packets} packets");
 
-    println!("==> Running owner node test");
-    let owner_node_test_time = owner_node::run_test(num_pipelines, num_nodes, num_packets);
-    println!("Owner node took {}ms", owner_node_test_time.as_millis());
+    // println!("==> Running owner node test");
+    // let owner_node_test_time = owner_node::run_test(num_pipelines, num_nodes, num_packets);
+    // println!("Owner node took {}ms", owner_node_test_time.as_millis());
+    //
+    // println!("==> Running owner arc mutex node test");
+    // let owner_arc_mutex_node_test_time =
+    //     owner_arc_mutex_node::run_test(num_pipelines, num_nodes, num_packets);
+    // println!(
+    //     "Owner arc mutex node took {}ms",
+    //     owner_arc_mutex_node_test_time.as_millis()
+    // );
 
     println!("==> Running actor node test");
     let actor_node_test_time = actor_node::run_test(num_pipelines, num_nodes, num_packets).await;

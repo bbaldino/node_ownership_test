@@ -34,6 +34,9 @@ struct StatTrackerWrapper {
 impl StatTrackerWrapper {
     async fn run(mut self) {
         while let Some(p) = self.receiver.recv().await {
+            // if p.index % 10000 == 0 {
+            //     p.dump_timeline();
+            // }
             self.inner.process_packet(p).await;
         }
         self.inner.dump_stats();
