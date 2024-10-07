@@ -54,7 +54,7 @@ struct ActorNode {
 
 impl ActorNode {
     fn new(name: &str) -> Self {
-        let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1000);
+        let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1);
         Self {
             name: name.to_owned(),
             incoming_tx: Some(incoming_tx),

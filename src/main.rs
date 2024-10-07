@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use meansd::MeanSD;
 
+#[allow(dead_code)]
 struct TimelineEvent {
     timestamp: Instant,
     event: String,
@@ -20,6 +21,7 @@ impl TimelineEvent {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct PacketInfo {
     index: u32,
     timeline: Vec<TimelineEvent>,
@@ -41,6 +43,7 @@ impl PacketInfo {
         self.timeline.push(TimelineEvent::new(time, event));
     }
 
+    #[allow(dead_code)]
     fn dump_timeline(&self) {
         let Some(first_event) = self.timeline.first() else {
             return;
@@ -83,10 +86,11 @@ struct StatTrackerNode {
 impl StatTrackerNode {
     fn dump_stats(&self) {
         println!(
-            "jitter: {}us, mean latency: {}us, stddev latency: {}us",
+            "jitter: {}us, mean latency: {}us, stddev latency: {}us across {} samples",
             self.jitter_calculator.current_jitter(),
             self.latency.mean(),
-            self.latency.sstdev()
+            self.latency.sstdev(),
+            self.latency.size(),
         );
     }
 }
@@ -97,20 +101,20 @@ async fn main() {
     let num_packets = 1000000;
     let num_nodes = 10;
     let num_pipelines = 10;
-    console_subscriber::init();
+    // console_subscriber::init();
     println!("Running {num_pipelines} pipelines with {num_nodes} nodes per pipeline and processing {num_packets} packets");
 
-    // println!("==> Running owner node test");
-    // let owner_node_test_time = owner_node::run_test(num_pipelines, num_nodes, num_packets);
-    // println!("Owner node took {}ms", owner_node_test_time.as_millis());
-    //
-    // println!("==> Running owner arc mutex node test");
-    // let owner_arc_mutex_node_test_time =
-    //     owner_arc_mutex_node::run_test(num_pipelines, num_nodes, num_packets);
-    // println!(
-    //     "Owner arc mutex node took {}ms",
-    //     owner_arc_mutex_node_test_time.as_millis()
-    // );
+    println!("==> Running owner node test");
+    let owner_node_test_time = owner_node::run_test(num_pipelines, num_nodes, num_packets);
+    println!("Owner node took {}ms", owner_node_test_time.as_millis());
+
+    println!("==> Running owner arc mutex node test");
+    let owner_arc_mutex_node_test_time =
+        owner_arc_mutex_node::run_test(num_pipelines, num_nodes, num_packets);
+    println!(
+        "Owner arc mutex node took {}ms",
+        owner_arc_mutex_node_test_time.as_millis()
+    );
 
     println!("==> Running actor node test");
     let actor_node_test_time = actor_node::run_test(num_pipelines, num_nodes, num_packets).await;
